@@ -5,7 +5,9 @@ TARGET = mini-shell
 
 SRC = main.c src/builtins.c src/parser.c
 
-all:
+all: $(TARGET)
+
+$(TARGET):
 	$(CC) $(CFLAGS) $(SRC) -o $(TARGET)
 
 clean:
