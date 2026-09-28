@@ -1,11 +1,17 @@
 #include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <stdio.h>
 #include "../include/parser.h"
 
+#define PARSED_INPUT_SIZE 1000
+
 int parse_input(char *input, char *args[], int max_args) {
+
     int argc = 0;
 
     char *operators = "|<>&";
-    char parsed_input[max_args * 10];
+    char parsed_input[PARSED_INPUT_SIZE];
 
     parsed_input[0] = '\0';
 
@@ -43,16 +49,77 @@ int parse_input(char *input, char *args[], int max_args) {
         }
     }
 
-    // Split into arguments while respecting double quotes
+    // Expand environment variables
+    char expanded_input[PARSED_INPUT_SIZE];
+    int j = 0;
+
+    for (int i = 0; parsed_input[i] != '\0' &&
+                    j < PARSED_INPUT_SIZE - 1; i++) {
+
+        if (parsed_input[i] == '$') {
+
+            char variable[100];
+            int k = 0;
+
+            i++;
+
+            while (parsed_input[i] != '\0' &&
+                   (isalnum((unsigned char)parsed_input[i]) ||
+                    parsed_input[i] == '_')) {
+
+                if (k < 99) {
+                    variable[k++] = parsed_input[i];
+                }
+
+                i++;
+            }
+
+            variable[k] = '\0';
+
+            // Move back because the for-loop increments i again
+            i--;
+
+            if (k > 0) {
+
+                char *value = getenv(variable);
+
+                if (value != NULL) {
+
+                    int value_len = strlen(value);
+
+                    for (int x = 0;
+                         x < value_len &&
+                         j < PARSED_INPUT_SIZE - 1;
+                         x++) {
+
+                        expanded_input[j++] = value[x];
+                    }
+                }
+            }
+            else {
+                expanded_input[j++] = '$';
+            }
+        }
+        else {
+            expanded_input[j++] = parsed_input[i];
+        }
+    }
+
+    expanded_input[j] = '\0';
+
+    strcpy(parsed_input, expanded_input);
+
+
+    // Split input into arguments while respecting double quotes
     int in_quotes = 0;
     char *start = parsed_input;
 
     for (int i = 0; parsed_input[i] != '\0'; i++) {
 
         if (parsed_input[i] == '"') {
+
             in_quotes = !in_quotes;
 
-            // Remove the quote
             memmove(
                 &parsed_input[i],
                 &parsed_input[i + 1],

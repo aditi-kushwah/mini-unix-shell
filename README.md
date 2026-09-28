@@ -6,7 +6,7 @@ A lightweight Unix-like command-line shell built from scratch in C using POSIX s
 
 Mini Unix Shell is a command-line interpreter developed in C to understand how Unix shells work internally.
 
-The project implements process creation, command execution, input/output redirection, pipelines, background processes, command history, and signal handling.
+The project implements process creation, command execution, input/output redirection, pipelines, background processes, environment variable expansion, command history, signal handling, and zombie-process prevention.
 
 ## 🚀 Features
 
@@ -21,7 +21,10 @@ The project implements process creation, command execution, input/output redirec
 * Append redirection using `>>`
 * Single and multiple command pipelines using `|`
 * Background process execution using `&`
+* Environment variable expansion such as `$HOME` and `$USER`
+* Double-quoted string support
 * `Ctrl+C` signal handling
+* `SIGCHLD` handling for automatic zombie-process cleanup
 * Error handling for invalid commands and files
 * Command history with a maximum of 50 commands
 
@@ -31,7 +34,8 @@ The project implements process creation, command execution, input/output redirec
 * **Operating System:** Linux / WSL
 * **Compiler:** GCC
 * **Build Tool:** Make
-* **System Calls / APIs:** `fork()`, `execvp()`, `waitpid()`, `pipe()`, `dup2()`, `open()`, `signal()`
+* **Version Control:** Git / GitHub
+* **System Calls / APIs:** `fork()`, `execvp()`, `wait()`, `waitpid()`, `pipe()`, `dup2()`, `open()`, `signal()`, `getenv()`
 
 ## 📂 Project Structure
 
@@ -40,6 +44,7 @@ mini-unix-shell/
 │
 ├── main.c
 ├── Makefile
+├── README.md
 ├── .gitignore
 │
 ├── include/
@@ -89,9 +94,30 @@ mini-shell> pwd
 mini-shell> echo Hello
 Hello
 
-mini-shell> ls
-
 mini-shell> history
+1 pwd
+2 echo Hello
+3 history
+```
+
+### Environment Variables
+
+```text
+mini-shell> echo $USER
+hp
+
+mini-shell> echo $HOME
+/home/hp
+
+mini-shell> echo My home is $HOME
+My home is /home/hp
+```
+
+### Quoted Strings
+
+```text
+mini-shell> echo "Hello World"
+Hello World
 ```
 
 ### Input Redirection
@@ -130,14 +156,24 @@ mini-shell> cat test.txt | grep Second | wc -l
 1
 ```
 
+Pipes can also be combined with environment variables:
+
+```text
+mini-shell> echo $HOME | grep /home
+/home/hp
+```
+
 ### Background Processes
 
 ```text
 mini-shell> sleep 10 &
 [Background process started: 12805]
+mini-shell>
 ```
 
 The shell remains available while the process runs in the background.
+
+Completed background processes are automatically reaped using `SIGCHLD` handling to prevent zombie processes.
 
 ### Signal Handling
 
@@ -147,7 +183,7 @@ Foreground processes can be interrupted using:
 Ctrl+C
 ```
 
-The signal is handled so that the shell itself remains active.
+The child process receives the default `SIGINT` behavior while the shell remains active.
 
 ## 🧠 Concepts Demonstrated
 
@@ -161,21 +197,27 @@ This project demonstrates practical understanding of:
 * File descriptor manipulation using `dup2()`
 * File handling using `open()`
 * Input/output redirection
+* Background process management
 * Unix signals
+* Zombie-process prevention
+* Environment variables
 * Command parsing
-* Dynamic process execution
+* Quoted string handling
+* Error handling
+* Modular C programming
 * Makefile-based compilation
+* Git and GitHub workflow
 
 ## 🔮 Future Improvements
 
-Planned improvements include:
+Possible future improvements include:
 
-* Environment variable expansion such as `$HOME` and `$USER`
-* Improved command parsing and quoting
-* More robust error handling
-* Command history navigation
+* Command history navigation using arrow keys
 * Additional shell built-ins
-* Improved process management
+* Improved command parsing and quoting
+* More robust syntax validation
+* Advanced job-control features
+* Support for more shell operators
 
 ## 👩‍💻 Author
 

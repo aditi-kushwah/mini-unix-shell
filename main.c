@@ -12,8 +12,17 @@
 #define MAX_ARGS 20
 #define MAX_HISTORY 50
 
+void handle_sigchld(int sig) {
+    (void)sig;
+
+    while (waitpid(-1, NULL, WNOHANG) > 0) {
+        // Reap completed child processes
+    }
+}
+
 int main() {
     signal(SIGINT, SIG_IGN);
+    signal(SIGCHLD, handle_sigchld);
 
     char input[MAX_INPUT];
     char *args[MAX_ARGS];
@@ -35,87 +44,20 @@ int main() {
             break;
         }
 
-        // Save command to history
+        // Save command history
+        if (strlen(input) == 0) {
+            continue;
+        }
+
         if (history_count < MAX_HISTORY) {
             strcpy(history[history_count], input);
             history_count++;
         }
 
-        
-        if (strlen(input) == 0) {
-            continue;
-        }
 
-        // Split input into words
-        int argc = 0;
-        char *operators = "|<>&";
-        char parsed_input[MAX_INPUT * 2] = "";
+        // Parse input
 
-        for (int i = 0; input[i] != '\0'; i++) {
-
-            int len = strlen(parsed_input);
-
-            // Handle >>
-            if (input[i] == '>' && input[i +1] == '>') {
-
-                parsed_input[len] = ' ';
-                parsed_input[len + 1] = '>';
-                parsed_input[len + 2] = '>';
-                parsed_input[len + 3] = ' ';
-
-                parsed_input[len + 4] = '\0';
-
-                i++;
-                // Skip the second >
-            }
-            
-            // Handle single-character operators
-            else if (strchr(operators, input[i]) != NULL) {
-
-                parsed_input[len] = ' ';
-                parsed_input[len + 1] = input[i];
-                parsed_input[len + 2] = ' ';
-                parsed_input[len + 3] = '\0';
-            }
-            
-            // Normal character
-            else {
-                parsed_input[len] = input[i];
-                parsed_input[len + 1] = '\0';
-            }
-        }
-
-        int in_quotes = 0;
-        char *start = parsed_input;
-
-        for (int i = 0; parsed_input[i] != '\0'; i++) {
-
-            if (parsed_input[i] == '"') {
-                in_quotes = !in_quotes;
-
-                // Remove the quote
-                memmove(&parsed_input[i],
-                        &parsed_input[i + 1],
-                        strlen(&parsed_input[i]));
-
-                i --;
-            }
-            else if (parsed_input[i] == ' ' && !in_quotes ) {
-                parsed_input[i] = '\0';
-
-                if (start[0] != '\0' && argc < MAX_ARGS - 1) {
-                    args[argc++] = start;
-                }
-
-                start = &parsed_input[i + 1];
-            }
-        }
-
-        if (start[0] != '\0' && argc < MAX_ARGS - 1) {
-            args[argc++] = start;
-        }
-
-        args[argc] = NULL;
+        int argc = parse_input(input, args, MAX_ARGS);
 
         // Check for background process &
         int background = 0;
@@ -192,13 +134,109 @@ int main() {
         if (redirection_error) {
             continue;
         }
+        // Multiple pipe handling
+        if (pipe_position != -1) {
+
+            char **commands[MAX_ARGS];
+            int command_count = 0;
+
+            // First command
+            commands[0] = args;
+
+            // Split commands at |
+            for (int i = 0; args[i] != NULL; i++) {
+
+                if (strcmp(args[i], "|") == 0) {
+
+                    args[i] = NULL;
+
+                    command_count++;
+                    commands[command_count] = &args[i + 1];
+                }
+            }
+
+            command_count++;
+
+            int previous_read = -1;
+
+            for (int i = 0; i < command_count; i++) {
+
+                int current_pipe[2];
+
+                // Create pipe if this is not the last command
+                if (i < command_count - 1) {
+
+                    if (pipe(current_pipe) == -1) {
+                        perror("pipe");
+                        break;
+                    }
+                }
+
+                pid_t pid = fork();
+
+                if (pid == 0) {
+
+                    // Read from previous command
+                    if (previous_read != -1) {
+                        dup2(previous_read, STDIN_FILENO);
+                        close(previous_read);
+                    }
+
+                    // Send output to next command
+                    if (i < command_count - 1) {
+
+                        close(current_pipe[0]);
+
+                        dup2(current_pipe[1], STDOUT_FILENO);
+
+                        close(current_pipe[1]);
+                    }
+
+                    execvp(commands[i][0], commands[i]);
+
+                    perror("Command failed");
+                    exit(1);
+                }
+
+                if (pid < 0) {
+                    perror("fork failed");
+                    break;
+                }
+
+                // Parent closes previous read end
+                if (previous_read != -1) {
+                    close(previous_read);
+                }
+
+                // Parent keeps only the read end
+                // of the current pipe
+                if (i < command_count - 1) {
+
+                    close(current_pipe[1]);
+
+                    previous_read = current_pipe[0];
+                }
+            }
+
+            // Close final read end in parent
+            if (previous_read != -1) {
+                close(previous_read);
+            }
+
+            // Wait for all commands
+            for (int i = 0; i < command_count; i++) {
+                wait(NULL);
+            }
+
+            continue;
+        }
 
             // Handle built-in pwd command
             if (strcmp(args[0], "pwd") == 0) {
                 builtin_pwd();
                 continue;
             }
-        
+
             // Handle built-in history command
             if (strcmp(args[0], "history") == 0) {
                 builtin_history(history, history_count);
@@ -213,17 +251,10 @@ int main() {
 
             // Handle built-in help command
             if (strcmp(args[0], "help") == 0) {
-                printf("Mini Unix Shell Commands:\n");
-                printf("  cd <directory>  - Change directory\n");
-                printf("  pwd             - Show current directory\n");
-                printf("  echo <text>     - Display text\n");
-                printf("  help            - Show this help message\n");
-                printf("  history         - Show command history\n");
-                printf("  exit            - Exit the shell\n");
+                builtin_help();
                 continue;
             }
 
-        
         // Handle built-in echo command
         if (strcmp(args[0], "echo") == 0) {
 
@@ -274,108 +305,7 @@ int main() {
         continue;
     }
 
-        
-        // Multiple pipe handling
-        if (pipe_position != -1) {
 
-            char **commands[MAX_ARGS];
-            int command_count = 0;
-
-            // First command
-            commands[0] = args;
-
-            // Split commands at |
-            for (int i = 0; args[i] != NULL; i++) {
-
-                if (strcmp(args[i], "|") == 0) {
-
-                    args[i] = NULL;
-
-                    command_count++;
-                    commands[command_count] = &args[i + 1];
-                }
-            }
-
-            command_count++;
-
-            int previous_read = -1;
-
-            for (int i = 0; i < command_count; i++) {
-
-                int current_pipe[2];
-
-                // Create pipe if this is not the last command
-                if (i < command_count - 1) {
-
-                    if (pipe(current_pipe) == -1) {
-                        perror("pipe");
-                        break;
-                    }
-                }
-
-                pid_t pid = fork();
-
-                if (pid == 0) {
-
-                    // Read from previous command
-                    if (previous_read != -1) {
-
-                        dup2(previous_read, STDIN_FILENO);
- 
-                        close(previous_read);
-                    }
-
-                    // Send output to next command
-                     if (i < command_count - 1) {
-
-                        close(current_pipe[0]);
-
-                        dup2(current_pipe[1], STDOUT_FILENO);
-
-                        close(current_pipe[1]);
-                    }
-
-                    execvp(commands[i][0], commands[i]);
-
-                    perror("Command failed");
-                    exit(1);
-                }
-
-                if (pid < 0) {
-                    perror("fork failed");
-                    break;
-                }
-
-                // Parent closes previous read end
-                if (previous_read != -1) {
-                    close(previous_read);
-                }
-
-                // Parent keeps only the read end
-                // of the current pipe
-                if (i < command_count - 1) {
-
-                    close(current_pipe[1]);
-
-                    previous_read = current_pipe[0];
-                }
-            }
-
-            // Close final read end in parent
-            if (previous_read != -1) {
-                close(previous_read);
-            }
-
-            // Wait for all commands
-            for (int i = 0; i < command_count; i++) {
-                wait(NULL);
-            }
-
-            continue;
-        }
-
-
-       
         pid_t pid = fork();
 
         if (pid == 0) {
@@ -429,7 +359,7 @@ int main() {
         }
         else if (pid > 0) {
             // Parent process
-            
+
             if (background) {
                 printf("[Background process started: %d]\n", pid);
             }
